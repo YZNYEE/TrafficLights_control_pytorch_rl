@@ -8,7 +8,7 @@ useHalting = True
 
 usePhase = True
 
-useRnn = False
+useRnn = True
 
 useSae = False
 

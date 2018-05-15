@@ -92,30 +92,52 @@ class singleModel():
 		self.dims = dims
 		self.actions = 2
 		if ni.useSae:
+			self.dims = int(dims/2)
 			return {'sae':sae(dims,1), 'qvalue':QValueMap(int(dims/2), dims, 2)}
 		if ni.useRnn:
 			return {'qvalue':gru(dims, dims*2)}
 		return {'qvalue':QValueMap(dims, dims*2, 2)}
 
-	def save(self, file):
+	def save(self, file, onlymodel = False):
+		if onlymodel:
+			torch.save(self.model, file)
+			return 
 		rewardlist = self.memory.reward
+		step = self.memory.step
+
+		if ni.useSae:
+			torch.save(step, 'saestep.pt')
+			torch.save(rewardlist, 'saereward.pt')
+			torch.save(self.loss, 'saeloss.pt')
+			return
+		if ni.useRnn:
+			torch.save(step, 'rnnstep.pt')
+			torch.save(rewardlist, 'rnnreward.pt')
+			torch.save(self.loss, 'rnnloss.pt')
+			return
+
+		torch.save(step, 'step.pt')
 		torch.save(rewardlist, 'reward.pt')
 		torch.save(self.loss, 'loss.pt')
-		torch.save(self.model, file)
 
-	def train(self, totaldays, modellast = ''):
+	def train(self, totaldays, modellast = '', loadSae = True):
 
 		self.loadPreProcessScaler(ni.preProcessDataFile)
 
 		if ni.useSae:
-			saeModel = self.model['sae']
-			saeModel.getScaler('preprocess/prepro.npy')
-			saeModel.train()
+			if not loadSae:
+				saeModel = self.model['sae']
+				saeModel.getScaler(ni.preProcessDataFile + '.npy')
+				self.logger.debug("train sae model")
+				saeModel.train(self.logger)
+				self.save('saemodel.pt', onlymodel = True)
+			self.model = torch.load('saemodel.pt')
+			#print(self.model)
 
 		self.logger.debug(" ----------------------------- train -----------------------------")
 
 		sumoBinary = "sumo"
-		sumoCmd = [sumoBinary, "-c", ni.sumocfg, "--ignore-route-errors",  "--time-to-teleport", "2000"]
+		sumoCmd = [sumoBinary, "-c", ni.sumocfg, "--ignore-route-errors",  "--time-to-teleport", "300"]
 
 		targetmodel = deepcopy(self.model['qvalue'])
 
@@ -295,8 +317,12 @@ class singleModel():
 
 		indexlist = self.memory.sample()
 							
-		input = torch.FloatTensor(len(indexlist), self.dims)
-		inputtarget = torch.FloatTensor(len(indexlist), self.dims)
+		if ni.useRnn:
+			input = torch.FloatTensor(len(indexlist), ni.actionDuration-1 ,self.dims)
+			inputtarget = torch.FloatTensor(len(indexlist), ni.actionDuration-1 ,self.dims)
+		else:
+			input = torch.FloatTensor(len(indexlist), self.dims)
+			inputtarget = torch.FloatTensor(len(indexlist), self.dims)
 
 		target = torch.FloatTensor(len(indexlist), self.actions)
 				
@@ -314,8 +340,14 @@ class singleModel():
 		input = autograd.Variable(input)
 		inputtarget = autograd.Variable(inputtarget)
 
-		qs = self.model['qvalue'](input)
-		qsn = targetmodel(inputtarget)
+		if ni.useRnn:
+			hidden = torch.zeros(1, len(indexlist),self.dims*2)
+			hidden = autograd.Variable(hidden)
+			qs = self.model['qvalue'](input, hidden)
+			qsn = targetmodel(inputtarget, hidden)
+		else:
+			qs = self.model['qvalue'](input)
+			qsn = targetmodel(inputtarget)
 
 		qsdata = torch.squeeze(qs.data)
 		qsndata = torch.squeeze(qsn.data)
@@ -359,7 +391,13 @@ class singleModel():
 		feature = self.getFeature()
 		if ni.useRnn:
 			feature.data = torch.unsqueeze(feature.data, 0)
-		qvalue = self.model['qvalue'](feature)
+		if ni.useSae:
+			feature = self.model['sae'].forward(feature)
+		if ni.useRnn:
+			hidden = autograd.Variable(torch.zeros(1,1,self.dims*2))
+			qvalue = self.model['qvalue'](feature, hidden)
+		else:
+			qvalue = self.model['qvalue'](feature)
 		if ni.useRnn:
 			qvalue.data = torch.squeeze(qvalue.data)
 
@@ -383,8 +421,7 @@ class singleModel():
 				lastaction = lastdata[1]
 				laststep = lastdata[2]
 				lastreward = lastdata[4]
-
-				experience = [lastfeature, lastaction, feature, reward, actionset]
+				experience = [lastfeature, lastaction, feature, reward, actionset, laststep]
 				self.memory.append(experience)
 
 	def getReward(self, infor, options):
@@ -476,7 +513,7 @@ class singleModel():
 			for i in range(ni.actionDuration-1):
 				featureList = self.getFeatureList(-1-i)
 				feature.append(featureList)
-			feature = self.scaler.transform([feature])
+			feature = self.scaler.transform(feature)
 		else:
 			featureList = self.getFeatureList(-1)
 			feature = self.scaler.transform([featureList])
@@ -536,6 +573,7 @@ class singleModel():
 			for id in traci.vehicle.getIDList():
 				wait = traci.vehicle.getAccumulatedWaitingTime(id)
 				intid = int(id)
+				#self.record['vehiclewaittime'][intid, step] = wait
 				self.record['vehiclewaittime'][intid, step] = max(self.record['vehiclewaittime'][intid, step], wait)
 				self.record['maxid'][step] = max(self.record['maxid'][step], intid)
 
@@ -573,7 +611,7 @@ class singleModel():
 		self.createRecord()
 
 
-model = singleModel('log/test.log')
+model = singleModel('log/test_rnn.log')
 
 #print(model.actionMap)
 #model.evaluation()
@@ -581,6 +619,6 @@ model = singleModel('log/test.log')
 #getNewDemands(ni.generateTrips, ni.netXml, ni.tripsXml, ni.rouXml)
 
 #model.getPreProcessData(50, ni.preProcessDataFile)
-model.train(100, modellast = '_op3')
+model.train(100, modellast = '_op3_rnn')
 
 #model.save('test.pt')

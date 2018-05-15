@@ -25,8 +25,7 @@ from pandas import Series, DataFrame
 import pandas as pd
 import sklearn.preprocessing as prep
 
-trainDataFile = 'trainingData/saetrain.npy'
-testDataFile = 'trainingData/saetest.npy'
+lossepoch = []
 
 class sae():
 
@@ -39,12 +38,14 @@ class sae():
 			inputsize = hiddensize
 			hiddensize = int(hiddensize/2)
 
+	def forward(self, input):
+		hidden, out = self.saeModels[0](input)
+		return hidden
 
 	def getScaler(self, trainDataFile):
 
 		self.trainData = np.load(trainDataFile)
 		self.scaler = prep.StandardScaler().fit(self.trainData)
-
 		self.trainData = self.scaler.transform(self.trainData)
 
 	def train(self, logger):
@@ -52,7 +53,7 @@ class sae():
 		optimizer = optim.Adam(self.saeModels[0].parameters(), lr=0.001)
 
 		minbatch = 64
-		maxepoch = 2000
+		maxepoch = 1000
 		epoch = 0
 
 		loss_function = nn.MSELoss()
@@ -68,7 +69,8 @@ class sae():
 		
 			totalloss = 0
 			lastloss = 0
-		
+			cnt = 0
+			
 			while head < dims[0]:
 				data = self.trainData[head:head+minbatch,:]
 				input = autograd.Variable(torch.FloatTensor(data))
@@ -94,15 +96,20 @@ class sae():
 
 				head += minbatch
 				cnt += 1
-
 				totalloss += sumloss.data[0]
 		
+			lossepoch.append(totalloss/cnt)
+			logger.debug('epoch ' + str(epoch) + ' totalloss: ' + str(totalloss/cnt))
+
+		torch.save(lossepoch, 'lossepoch.pt')
+
+
+'''
 				if cnt%checkpoint == 0 and cnt != 0:
 
 					logger.debug('epoch: ' + str(epoch) + ' train totalloss: ' + str(totalloss/checkpoint))
 					totalloss = 0
-
-					'''
+				
 					#------------ test totalloss -----------------------
 					dimstest = np.shape(self.testData)
 					inputtest = autograd.Variable(torch.FloatTensor(testData))
@@ -124,7 +131,7 @@ class sae():
 						lasttestloss = sumloss.data[0]
 
 					logger.debug('test totalloss: ' + str(sumloss.data[0]))
-					'''
+'''
 
 
 
