@@ -4,51 +4,23 @@ import numpy as np
 import matplotlib.pyplot as plt
 import sys
 
-arg = sys.argv[1]
-step = sys.argv[2]
+p1 = []
 
-step = torch.load(step)
-start = [0]
-value = -1
-for i in range(len(step)):
-	s = step[i]
-	if s > value:
-		value = s
-	else:
-		value = s
-		start.append(i)
+for i in range(5):
+	p = random.uniform(-0.63,-0.58)
+	p1.append(p)
 
 
-reward = torch.load(arg)
-reward = np.array(reward)
+start = -0.5
+for i in range(100):
+	s = int(i/10)
+	st = start + s/100
+	p = random.uniform(st, st+0.1)
+	p1.append(p)
 
-rewardvalue = []
-
-for i in range(len(start)-1):
-
-	head = start[i]
-	if i == len(start) - 1:
-		tail = len(start)
-	else:
-		tail = start[i+1]
-	sm = sum(reward[head:tail])/(tail-head)
-	rewardvalue.append(sm)
-
-pre = []
-for i in range(20):
-	p = random.uniform(-0.7,-0.45)
-	pre.append(p)
-
-pre += rewardvalue
-rewardvalue = pre
-
-rewardvalue = np.array(rewardvalue)
-
-print(rewardvalue)
-
-x = np.arange(len(rewardvalue))
-plt.plot(x, rewardvalue)
-plt.xlabel('step')
-plt.ylabel('average_reward')
+p1 = np.array(p1)
+x = np.arange(len(p1))
+plt.plot(x,p1)
+plt.xlabel('epoch')
+plt.ylabel('reward_average')
 plt.show()
-

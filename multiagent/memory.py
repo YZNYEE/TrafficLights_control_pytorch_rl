@@ -10,6 +10,7 @@ class memory:
 		self.batch = batch
 		self.memory = []
 		self.reward = []
+		self.step = []
 
 	def getMemoryLen(self):
 
@@ -19,8 +20,10 @@ class memory:
 
 		num = len(self.memory)
 		reward = experience[3]
+		step = experience[5]
 
 		self.reward.append(reward)
+		self.step.append(step)
 
 		if num < self.maxsize:
 

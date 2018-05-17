@@ -12,6 +12,10 @@ useHalting = True
 
 usePhase = False
 
+useStep = True
+
+option = 3
+
 generateTrips = "2net/generateTrips.py"
 
 netXml = "2net/2net.net.xml"

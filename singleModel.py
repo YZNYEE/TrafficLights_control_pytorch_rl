@@ -271,7 +271,6 @@ class singleModel():
 				adjustFlag = self.getAdjustFlag()
 				if adjustFlag:
 					feature = self.getFeatureList(-1)
-					#print(len(feature))
 					totalfeature.append(feature)
 				traci.simulationStep()
 				step += 1

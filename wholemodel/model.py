@@ -27,7 +27,7 @@ import pandas as pd
 import sklearn.preprocessing as prep
 
 from logger import MyLogger
-from momery import memory
+from multiagent.memory import memory
 from copy import deepcopy
 
 import net3_information as ni
@@ -120,12 +120,14 @@ class model():
 		if ni.usePhase:
 			dims += tlNum
 		self.dims = dims
-		self.actions = 3 ** tlNum
+		self.actions = 3 ** tlNum 
 		return QValueMap(dims, dims*2, 3 ** tlNum)
 
 	def save(self, file):
 		rewardlist = self.memory.reward
-		torch.save(rewardlist, 'reward/' + file + '_reward.pt')
+		step = self.memory.step
+		torch.save(rewardlist, 'reward/reward.pt')
+		torch.save(step, 'reward/step.pts')
 		torch.save(self.trainRecord['loss'], 'loss/' + file + '_loss.pt')
 		torch.save(self.model, 'model/' + file + '.pt')
 
@@ -142,21 +144,15 @@ class model():
 
 		optimizer = optim.Adam(self.model.parameters(), lr=0.001)
 		gamma = 0.95
-		minibatch = 256
-
-		exchange = 1000
+		exchange = 500
 		exchangeDays = 5
-
 		modellast += str(gamma)
-
 		tua = 0.01
-		checkpoint = 1000
+		minibatch = 128
 
 		loss_function = nn.MSELoss(size_average = False)
-
 		totalloss = 0
-
-		evaluationDays = 5
+		evaluationDays = 4
 
 		self.trainCnt = 0
 		self.createTrainRecord()
@@ -166,28 +162,23 @@ class model():
 		for i in range(totaldays):
 
 			self.createRecord()
-
 			getNewDemands(ni.generateTrips, ni.netXml, ni.tripsXml, ni.rouXml)
 			traci.start(sumoCmd)
 			step = 0
 
 			self.logger.debug("train days : "+str(i))
-
 			while step < 7200:
 				flag = self.simulation(traci, step, record = True)
 				step += 1
-				if flag:
-					loss = self.trainModel(targetmodel, optimizer, loss_function, gamma = gamma, minibatch = minibatch)
-					if loss > 0:
-						totalloss += loss
-						self.trainRecord['loss'].append(loss)
+				loss = self.trainModel(targetmodel, optimizer, loss_function, gamma = gamma, minibatch = minibatch)
+				if loss > 0:
+					totalloss += loss
+					self.trainRecord['loss'].append(loss)
 
 				if self.trainCnt>0 and self.trainCnt%exchange == 0 and totalloss > 0:
 					self.logger.debug(" --------- soft copy parameters --------- ")
 					soft_update(self.model, targetmodel, tua)
-
-				if self.trainCnt>0 and self.trainCnt%checkpoint == 0 and totalloss > 0:
-					self.logger.debug(" totalloss :" + str(totalloss/checkpoint))
+					self.logger.debug(" totalloss :" + str(totalloss/exchange))
 					totalloss = 0
 
 			traci.close()
@@ -321,7 +312,7 @@ class model():
 	def trainModel(self, targetmodel, optimizer, loss_function, gamma = 0.1, minibatch = 128):
 
 		ln = self.memory.getMemoryLen()
-		if ln < 3000:
+		if ln < 5000:
 			return -1
 
 		self.trainCnt += 1
@@ -362,8 +353,8 @@ class model():
 			a = data[1]
 			r = data[3]
 			actionset = data[4]
-			#target[j,a] = r + gamma*max(torch.index_select(qsndata[j,:],0,torch.LongTensor(actionset)))
-			target[j,a] = r + gamma*max(qsndata[j,:])
+			target[j,a] = r + gamma*max(torch.index_select(qsndata[j,:],0,torch.LongTensor(actionset)))
+			#target[j,a] = r + gamma*max(qsndata[j,:])
 
 		target = autograd.Variable(target)
 
@@ -404,30 +395,23 @@ class model():
 		self.executeAction(traci,action)
 		if record:
 			self.trainRecord['dataLen'] += 1
-			self.trainRecord['state'].append([feature, action, self.record['step'], actionset])
+			option = ni.option
+			if self.trainRecord['dataLen'] == 1:
+				laststep = 0
+			else:
+				laststep = self.trainRecord['state'][-1][2]
+			step = self.record['step']
+			reward = self.getReward(infor = [laststep, step, 0.02], options = option)
+			self.trainRecord['state'].append([feature, action, step, actionset, reward])
+
 			if self.trainRecord['dataLen'] > 1:
 				lastdata = self.trainRecord['state'][-2]
 				lastfeature = lastdata[0]
 				lastaction = lastdata[1]
 				laststep = lastdata[2]
-				options = 2
-				#print(' ')
-				#print('reward: ' + str(reward) + ' laststep: '+str(laststep) + ' step: '+ str(self.record['step']))
-				if options == 1:
-					reward = self.getReward(infor = [laststep, 0.2], options = 1)
-					experience = [lastfeature, lastaction, feature, reward, actionset]
-					self.memory.append(experience)
-				if options == 2 and self.trainRecord['dataLen'] > 2:
-					llstep = self.trainRecord['state'][-3][2]
-					reward = self.getReward(infor = [llstep, laststep, 0.2], options = 2)
-					experience = [lastfeature, lastaction, feature, reward, actionset]
-					self.memory.append(experience)
-				if (options == 3 or options == 4 )and self.trainRecord['dataLen'] > 2:
-					llstep = self.trainRecord['state'][-3][2]
-					reward = self.getReward(infor = [llstep, laststep, 0.2], options = options)
-					assert( reward <= 0)
-					experience = [lastfeature, lastaction, feature, reward, actionset]
-					self.memory.append(experience)
+				lastreward = lastdata[4]
+				experience = [lastfeature, lastaction, feature, reward, actionset, laststep]
+				self.memory.append(experience)
 
 	def getReward(self, infor, options):
 		if options == 1:
@@ -657,7 +641,7 @@ class model():
 		self.createRecord()
 
 
-model = model('log/option2_net3.log')
+model = model('log/opt3_net3.log')
 
 print(model.actionMap)
 #model.evaluation()
@@ -665,6 +649,6 @@ print(model.actionMap)
 #getNewDemands(ni.generateTrips, ni.netXml, ni.tripsXml, ni.rouXml)
 
 #model.getPreProcessData(25, ni.preProcessDataFile)
-model.train(200, modellast = '_op2_net3')
+model.train(200, modellast = 'op3_net3')
 
 #model.save('test.pt')

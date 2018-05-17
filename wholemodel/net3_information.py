@@ -16,6 +16,8 @@ useHalting = True
 
 usePhase = True
 
+option = 3
+
 generateTrips = "3net/generateTrips.py"
 
 netXml = "3net/3net.net.xml"
